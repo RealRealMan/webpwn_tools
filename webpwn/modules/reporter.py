@@ -1,0 +1,206 @@
+"""Module 9 — HTML Report Generator"""
+import os
+import datetime
+from rich.panel import Panel
+from rich.console import Console
+from modules.session import Session
+
+
+SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
+SEVERITY_COLOR = {
+    "CRITICAL": ("#7f0000", "#ff8080"),
+    "HIGH":     ("#7a3800", "#ffb347"),
+    "MEDIUM":   ("#5a4d00", "#ffe066"),
+    "LOW":      ("#004d40", "#80cbc4"),
+    "INFO":     ("#1a1a2e", "#9fa8da"),
+}
+
+HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebPwn Tools — Pentest Report</title>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          background: #0d1117; color: #e6edf3; line-height: 1.6; }}
+  .header {{ background: #161b22; border-bottom: 1px solid #30363d;
+             padding: 2rem 3rem; }}
+  .header h1 {{ font-size: 1.8rem; color: #58a6ff; margin-bottom: 0.25rem; }}
+  .header .meta {{ color: #8b949e; font-size: 0.9rem; font-family: monospace; }}
+  .summary-grid {{ display: grid; grid-template-columns: repeat(5, 1fr);
+                   gap: 1rem; padding: 2rem 3rem; }}
+  .stat-card {{ background: #161b22; border: 1px solid #30363d;
+               border-radius: 8px; padding: 1rem; text-align: center; }}
+  .stat-card .num {{ font-size: 2rem; font-weight: 700; }}
+  .stat-card .lbl {{ font-size: 0.75rem; color: #8b949e; text-transform: uppercase;
+                     letter-spacing: .08em; margin-top: 4px; }}
+  .c-critical {{ color: #ff4444; }}
+  .c-high     {{ color: #ff9800; }}
+  .c-medium   {{ color: #ffeb3b; }}
+  .c-low      {{ color: #4caf50; }}
+  .c-info     {{ color: #90caf9; }}
+  .section {{ padding: 0 3rem 2rem; }}
+  .section h2 {{ font-size: 1.1rem; color: #8b949e; text-transform: uppercase;
+                 letter-spacing: .1em; margin-bottom: 1rem;
+                 padding-bottom: 0.5rem; border-bottom: 1px solid #21262d; }}
+  .finding {{ background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+              margin-bottom: 1rem; overflow: hidden; }}
+  .finding-header {{ display: flex; align-items: center; gap: 1rem;
+                     padding: 0.75rem 1rem; border-bottom: 1px solid #21262d; }}
+  .badge {{ font-size: 0.7rem; font-weight: 700; padding: 3px 10px;
+            border-radius: 20px; text-transform: uppercase; letter-spacing: .06em; }}
+  .finding-title {{ font-weight: 500; font-size: 0.95rem; }}
+  .finding-module {{ margin-left: auto; font-size: 0.75rem; color: #8b949e;
+                     font-family: monospace; }}
+  .finding-body {{ padding: 1rem; }}
+  .finding-body p {{ font-size: 0.88rem; color: #8b949e; margin-bottom: 0.5rem; }}
+  .finding-body .field-label {{ font-size: 0.75rem; color: #58a6ff;
+                                 text-transform: uppercase; letter-spacing: .06em;
+                                 margin-top: 0.75rem; margin-bottom: 0.25rem; }}
+  .evidence {{ background: #0d1117; border: 1px solid #21262d; border-radius: 4px;
+               padding: 0.5rem 0.75rem; font-family: monospace;
+               font-size: 0.82rem; color: #cdd9e5; word-break: break-all; }}
+  .cmdlog {{ padding: 0 3rem 3rem; }}
+  .cmdlog h2 {{ font-size: 1.1rem; color: #8b949e; text-transform: uppercase;
+                letter-spacing: .1em; margin-bottom: 1rem;
+                padding-bottom: 0.5rem; border-bottom: 1px solid #21262d; }}
+  .cmd-entry {{ background: #0d1117; border: 1px solid #21262d; border-radius: 4px;
+                padding: 0.6rem 1rem; margin-bottom: 0.5rem;
+                font-family: monospace; font-size: 0.82rem; color: #8b949e; }}
+  .cmd-entry .ts {{ color: #3fb950; margin-right: 0.75rem; }}
+  .footer {{ text-align: center; padding: 2rem; color: #8b949e;
+             font-size: 0.8rem; border-top: 1px solid #21262d; }}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>WebPwn Tools — Penetration Test Report</h1>
+  <div class="meta">
+    Target: {target} &nbsp;|&nbsp;
+    CMS: {cms} &nbsp;|&nbsp;
+    Session: {session_id} &nbsp;|&nbsp;
+    Generated: {timestamp}
+  </div>
+</div>
+
+<div class="summary-grid">
+  <div class="stat-card"><div class="num c-critical">{cnt_critical}</div><div class="lbl">Critical</div></div>
+  <div class="stat-card"><div class="num c-high">{cnt_high}</div><div class="lbl">High</div></div>
+  <div class="stat-card"><div class="num c-medium">{cnt_medium}</div><div class="lbl">Medium</div></div>
+  <div class="stat-card"><div class="num c-low">{cnt_low}</div><div class="lbl">Low</div></div>
+  <div class="stat-card"><div class="num c-info">{cnt_info}</div><div class="lbl">Info</div></div>
+</div>
+
+<div class="section">
+  <h2>Findings</h2>
+  {findings_html}
+</div>
+
+<div class="cmdlog">
+  <h2>Command Log</h2>
+  {cmdlog_html}
+</div>
+
+<div class="footer">
+  Generated by WebPwn Tools v2.0 &nbsp;|&nbsp; CONFIDENTIAL — Authorized personnel only
+</div>
+</body>
+</html>
+"""
+
+BADGE_COLORS = {
+    "CRITICAL": "background:#7f0000;color:#ff8080",
+    "HIGH":     "background:#7a3800;color:#ffb347",
+    "MEDIUM":   "background:#4a3d00;color:#ffe066",
+    "LOW":      "background:#003d33;color:#80cbc4",
+    "INFO":     "background:#1a1a2e;color:#9fa8da",
+}
+
+
+def generate_report(session: Session, console: Console):
+    console.clear()
+    console.print(Panel("[bold]Generate Report[/bold]", border_style="bright_blue"))
+    console.print()
+
+    if not session.findings:
+        console.print("  [yellow]  No findings to report. Run some modules first.[/yellow]")
+        console.print()
+        console.print("[dim]Press Enter to return...[/dim]")
+        input()
+        return
+
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    fname = f"webpwn_report_{session.session_id}.html"
+    fpath = os.path.join(session.report_dir, fname)
+
+    counts = session.summary()
+
+    # Build findings HTML
+    sorted_findings = sorted(session.findings,
+                             key=lambda f: SEVERITY_ORDER.get(f["severity"], 99))
+    findings_html = ""
+    for f in sorted_findings:
+        sev = f["severity"]
+        badge_style = BADGE_COLORS.get(sev, "")
+        findings_html += f"""
+    <div class="finding">
+      <div class="finding-header">
+        <span class="badge" style="{badge_style}">{sev}</span>
+        <span class="finding-title">{_esc(f['title'])}</span>
+        <span class="finding-module">{_esc(f.get('module',''))}</span>
+      </div>
+      <div class="finding-body">
+        <p>{_esc(f.get('description',''))}</p>
+        {"<div class='field-label'>Evidence</div><div class='evidence'>" + _esc(f.get('evidence','')) + "</div>" if f.get('evidence') else ""}
+        {"<div class='field-label'>Remediation</div><p>" + _esc(f.get('remediation','')) + "</p>" if f.get('remediation') else ""}
+        <p style="font-size:0.75rem;color:#444d56;margin-top:0.5rem">{f.get('timestamp','')}</p>
+      </div>
+    </div>"""
+
+    # Build command log HTML
+    cmdlog_html = ""
+    for entry in session.command_log[-50:]:
+        cmdlog_html += f"""
+    <div class="cmd-entry">
+      <span class="ts">{entry['timestamp'][:19]}</span>
+      {_esc(entry['cmd'][:200])}
+    </div>"""
+
+    html = HTML_TEMPLATE.format(
+        target=_esc(session.target),
+        cms=_esc(session.cms or "Unknown"),
+        session_id=session.session_id,
+        timestamp=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        cnt_critical=counts.get("CRITICAL", 0),
+        cnt_high=counts.get("HIGH", 0),
+        cnt_medium=counts.get("MEDIUM", 0),
+        cnt_low=counts.get("LOW", 0),
+        cnt_info=counts.get("INFO", 0),
+        findings_html=findings_html or "<p style='color:#8b949e'>No findings logged.</p>",
+        cmdlog_html=cmdlog_html or "<p style='color:#8b949e'>No commands logged.</p>",
+    )
+
+    os.makedirs(session.report_dir, exist_ok=True)
+    with open(fpath, "w", encoding="utf-8") as out:
+        out.write(html)
+
+    console.print(f"  [bright_green]✓ Report saved:[/bright_green] [cyan]{fpath}[/cyan]")
+    console.print()
+    console.print(f"  Total findings: [yellow]{len(session.findings)}[/yellow]")
+    for sev, cnt in counts.items():
+        if cnt:
+            colors = {"CRITICAL":"bold red","HIGH":"yellow","MEDIUM":"yellow",
+                      "LOW":"cyan","INFO":"dim"}
+            console.print(f"    [{colors.get(sev,'white')}]{sev}: {cnt}[/{colors.get(sev,'white')}]")
+
+    console.print()
+    console.print(f"  [dim]Open in browser: firefox {fpath}[/dim]")
+    console.print()
+    console.print("[dim]Press Enter to return to menu...[/dim]")
+    input()
+
+
+def _esc(s: str) -> str:
+    return str(s).replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
