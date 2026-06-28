@@ -307,7 +307,31 @@ def main():
                         help="Skip splash screen")
     parser.add_argument("--module",  "-m",
                         help="Run a specific module and exit (1-9)")
+    parser.add_argument("--update",        action="store_true",
+                        help="Pull latest version from GitHub")
     args = parser.parse_args()
+
+  # Auto-update from GitHub
+    if args.update:
+        import subprocess
+        import sys
+        import os
+        repo_dir = os.path.dirname(os.path.abspath(__file__))
+        print("\n  Checking for updates...")
+        result = subprocess.run(
+            ["git", "-C", repo_dir, "pull"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            print(f"  {result.stdout.strip()}")
+            if "Already up to date" in result.stdout:
+                print("  Already on latest version.\n")
+            else:
+                print("  Update complete. Restarting...\n")
+                os.execv(sys.executable, [sys.executable] + sys.argv[:-1])
+        else:
+            print(f"  Update failed:\n  {result.stderr.strip()}\n")
+        sys.exit(0)
 
     # Load saved config
     config = load_config()
