@@ -47,10 +47,10 @@ MODULES = [
     ("4", "Injection Tests",        "XSS, SQLi, CSRF, SSTI, open redirect",          "active",   "dalfox / sqlmap"),
     ("5", "Auth Testing",           "Login bypass, brute-force, session mgmt",       "active",   "hydra / burp"),
     ("6", "API & JS Recon",         "JS files, API endpoints, exposed secrets",      "passive",  "custom"),
-    ("s", "Subdomain Enum",         "crt.sh + subfinder + live DNS validation",      "passive",  "subfinder"),
     ("7", "CMS Scanner",            "Plugins, themes, users, CVEs",                  "active",   "wpscan / joomscan"),
     ("8", "User Enumeration",       "CMS user discovery via API & pages",            "semi",     "cms-specific"),
     ("9", "Generate Report",        "Export all findings → HTML report",             "output",   "built-in"),
+    ("10", "Subdomain Enum",         "crt.sh + subfinder + live DNS validation",      "passive",  "subfinder"),
     ("0", "Settings",               "Target, proxy, engagement info, API keys",      "config",   "config.yaml"),
 ]
 
@@ -207,9 +207,9 @@ def run_module(choice: str, session: Session):
         "4": run_injection,
         "5": run_auth,
         "6": run_api_recon,
-        "s": run_subdomain_enum,
         "7": run_cms_scanner,
         "8": run_user_enum,
+        "10": run_subdomain_enum,
     }
 
     if choice in dispatch:
