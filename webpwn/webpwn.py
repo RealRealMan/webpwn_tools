@@ -278,8 +278,21 @@ def main():
     parser.add_argument("--proxy",   "-p", help="Proxy (host:port), e.g. 127.0.0.1:8080")
     parser.add_argument("--no-splash",     action="store_true", help="Skip splash screen")
     parser.add_argument("--module",  "-m", help="Run a specific module and exit (1-9)")
+    parser.add_argument("--update",        action="store_true", help="Pull latest version from GitHub")
     args = parser.parse_args()
-
+    
+    if args.update:
+        import subprocess, sys, os
+        repo_dir = os.path.dirname(os.path.abspath(__file__))
+        print("\n  Checking for updates...")
+        subprocess.run(["git", "-C", repo_dir, "fetch", "origin"], capture_output=True, text=True)
+        result = subprocess.run(["git", "-C", repo_dir, "reset", "--hard", "origin/master"], capture_output=True, text=True)
+        if result.returncode == 0:
+            print("  Update complete. Restarting...\n") if "HEAD" in result.stdout else print("  Already up to date.\n")
+        else:
+            print(f"  Update failed:\n  {result.stderr.strip()}\n")
+        sys.exit(0)
+    
     # Load saved config
     config = load_config()
     session = Session(config)
