@@ -27,8 +27,8 @@ def run_injection(session: Session, console: Console):
     console.print("  [3] SSTI detection (template injection payloads)")
     console.print("  [4] Open redirect check")
     console.print("  [5] CSRF header analysis")
-    console.print("  [a] Run all")
-    console.print("  [b] Back")
+    console.print("  [bright_green]\\[a][/bright_green] Run all")
+    console.print("  [dim]\\[b][/dim] Back")
     console.print()
 
     choice = Prompt.ask("  Choose", default="b").strip().lower()

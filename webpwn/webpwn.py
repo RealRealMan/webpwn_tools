@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WebPwn Tools v1.0 - Universal Web Penetration Testing Toolkit
+WebPwn Tools v2.0 - Universal Web Penetration Testing Toolkit
 Authorized use only. For ethical security testing with written permission.
 """
 
@@ -8,6 +8,9 @@ import sys
 import time
 import argparse
 import os
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -30,41 +33,25 @@ from modules.user_enum import run_user_enum
 from modules.reporter import generate_report
 from modules.settings import show_settings, load_config, save_config
 from modules.cms_detect import detect_cms
+from modules.subdomain_enum import run_subdomain_enum
 
 console = Console()
 
-VERSION = "1.0"
-BANNER = """
- __        __   _      ____   _    _   ___    _____   ___    ___   _     ___
- \ \      / /  | |    |  _ \ | |  | | |__ \  |_   _| / _ \  / _ \ | |  / __|
-  \ \ /\ / /   | |    | |_) || |__| |    ) |   | |  | | | || | | || | | (__ 
-   \ V  V /    | |___ |  __/ |  __  |   / /    | |  | |_| || |_| || |__\__ \\
-    \_/\_/     |_____||_|    |_|  |_|  /_/     |_|   \___/  \___/ |____|___/
-"""
-
+VERSION = "2.0"
 BANNER_SIMPLE = "WebPwn Tools"
 
 MODULES = [
-    ("1", "Recon & Fingerprint",    "WHOIS, DNS, headers, tech stack",
-     "passive",  "httpx / whatweb"),
-    ("2", "Headers & TLS",          "CSP, HSTS, SSL rating, cookie flags",
-     "passive",  "testssl / curl"),
-    ("3", "Dir & File Enum",
-     "Hidden paths, backups, open directories",   "active",   "gobuster"),
-    ("4", "Injection Tests",        "XSS, SQLi, CSRF, SSTI, open redirect",
-     "active",   "dalfox / sqlmap"),
-    ("5", "Auth Testing",           "Login bypass, brute-force, session mgmt",
-     "active",   "hydra / burp"),
-    ("6", "API & JS Recon",         "JS files, API endpoints, exposed secrets",
-     "passive",  "gau / trufflehog"),
-    ("7", "CMS Scanner",            "Plugins, themes, users, CVEs",
-     "active",   "wpscan / joomscan"),
-    ("8", "User Enumeration",       "CMS user discovery via API & pages",
-     "semi",     "cms-specific"),
-    ("9", "Generate Report",
-     "Export all findings → HTML report",         "output",   "jinja2"),
-    ("0", "Settings",               "Target, proxy, rate limit, API keys",
-     "config",   "config.yaml"),
+    ("1", "Recon & Fingerprint",    "WHOIS, DNS, headers, tech stack, subdomains", "passive",  "whatweb / dig"),
+    ("2", "Headers & TLS",          "CSP, HSTS, SSL rating, cookie flags",          "passive",  "testssl / curl"),
+    ("3", "Dir & File Enum",        "Hidden paths, backups, open directories",       "active",   "gobuster"),
+    ("4", "Injection Tests",        "XSS, SQLi, CSRF, SSTI, open redirect",          "active",   "dalfox / sqlmap"),
+    ("5", "Auth Testing",           "Login bypass, brute-force, session mgmt",       "active",   "hydra / burp"),
+    ("6", "API & JS Recon",         "JS files, API endpoints, exposed secrets",      "passive",  "custom"),
+    ("s", "Subdomain Enum",         "crt.sh + subfinder + live DNS validation",      "passive",  "subfinder"),
+    ("7", "CMS Scanner",            "Plugins, themes, users, CVEs",                  "active",   "wpscan / joomscan"),
+    ("8", "User Enumeration",       "CMS user discovery via API & pages",            "semi",     "cms-specific"),
+    ("9", "Generate Report",        "Export all findings → HTML report",             "output",   "built-in"),
+    ("0", "Settings",               "Target, proxy, engagement info, API keys",      "config",   "config.yaml"),
 ]
 
 SEVERITY_COLOR = {
@@ -94,18 +81,15 @@ def splash_screen():
 
     # Print banner
     console.print()
-    banner_text = Text(
-        BANNER_SIMPLE, style="bold bright_blue", justify="center")
+    banner_text = Text(BANNER_SIMPLE, style="bold bright_blue", justify="center")
     console.print(Align.center(banner_text, vertical="middle"),
                   style="bold bright_blue")
 
-    subtitle = Text(
-        f"v{VERSION}  ·  Universal Web Penetration Toolkit", justify="center")
+    subtitle = Text(f"v{VERSION}  ·  Universal Web Penetration Toolkit", justify="center")
     subtitle.stylize("dim cyan")
     console.print(Align.center(subtitle))
 
-    auth_warn = Text(
-        "⚠  Authorized use only  |  For ethical security testing only", justify="center")
+    auth_warn = Text("⚠  Authorized use only  |  For ethical security testing only", justify="center")
     auth_warn.stylize("dim yellow")
     console.print(Align.center(auth_warn))
     console.print()
@@ -113,8 +97,7 @@ def splash_screen():
     # Progress bar
     with Progress(
         TextColumn("  [cyan]{task.description}[/cyan]"),
-        BarColumn(bar_width=50, complete_style="green",
-                  finished_style="bright_green"),
+        BarColumn(bar_width=50, complete_style="green", finished_style="bright_green"),
         TextColumn("[green]{task.percentage:>3.0f}%[/green]"),
         console=console,
         transient=False,
@@ -124,8 +107,7 @@ def splash_screen():
             progress.update(task, description=msg)
             time.sleep(0.25)
             progress.advance(task)
-        progress.update(
-            task, description="[bright_green]All modules ready.[/bright_green]")
+        progress.update(task, description="[bright_green]All modules ready.[/bright_green]")
 
     console.print()
     time.sleep(0.3)
@@ -158,13 +140,12 @@ def print_main_menu(session: Session):
     console.print()
 
     # Universal modules section
-    console.print(
-        "  [bold dim]── UNIVERSAL MODULES (all CMS) ──────────────────────────────[/bold dim]")
+    console.print("  [bold dim]── UNIVERSAL MODULES (all CMS) ──────────────────────────────[/bold dim]")
     console.print()
 
-    universal = MODULES[:6]
-    cms_specific = MODULES[6:8]
-    output_modules = MODULES[8:]
+    universal = MODULES[:7]    # 1-6 + s
+    cms_specific = MODULES[7:9]
+    output_modules = MODULES[9:]
 
     _print_module_table(universal)
     console.print()
@@ -173,15 +154,13 @@ def print_main_menu(session: Session):
     cms_label = f"CMS-specific"
     if session.cms:
         cms_label += f" (loaded: {session.cms})"
-    console.print(
-        f"  [bold dim]── {cms_label.upper()} {'─' * max(1, 48 - len(cms_label))}[/bold dim]")
+    console.print(f"  [bold dim]── {cms_label.upper()} {'─' * max(1, 48 - len(cms_label))}[/bold dim]")
     console.print()
     _print_module_table(cms_specific)
     console.print()
 
     # Output section
-    console.print(
-        "  [bold dim]── OUTPUT & CONFIG ──────────────────────────────────────────[/bold dim]")
+    console.print("  [bold dim]── OUTPUT & CONFIG ──────────────────────────────────────────[/bold dim]")
     console.print()
     _print_module_table(output_modules)
     console.print()
@@ -228,14 +207,14 @@ def run_module(choice: str, session: Session):
         "4": run_injection,
         "5": run_auth,
         "6": run_api_recon,
+        "s": run_subdomain_enum,
         "7": run_cms_scanner,
         "8": run_user_enum,
     }
 
     if choice in dispatch:
         if not session.target:
-            console.print(
-                "[bold red]  ✗ No target set. Use [r] to set a target first.[/bold red]")
+            console.print("[bold red]  ✗ No target set. Use [r] to set a target first.[/bold red]")
             time.sleep(1.5)
             return
         dispatch[choice](session, console)
@@ -250,8 +229,7 @@ def run_module(choice: str, session: Session):
 def set_target(session: Session):
     """Prompt user to set/change target and auto-detect CMS."""
     console.print()
-    raw = Prompt.ask(
-        "  [cyan]Enter target URL or domain[/cyan]", default=session.target or "")
+    raw = Prompt.ask("  [cyan]Enter target URL or domain[/cyan]", default=session.target or "")
     if not raw.strip():
         return
 
@@ -263,17 +241,14 @@ def set_target(session: Session):
     session.findings = []
     session.cms = None
 
-    console.print(
-        f"\n  [dim]Auto-detecting CMS for [cyan]{target}[/cyan]...[/dim]")
+    console.print(f"\n  [dim]Auto-detecting CMS for [cyan]{target}[/cyan]...[/dim]")
     cms = detect_cms(target, session.proxy)
     session.cms = cms
 
     if cms:
-        console.print(
-            f"  [bright_green]✓ CMS detected:[/bright_green] [bold]{cms}[/bold]")
+        console.print(f"  [bright_green]✓ CMS detected:[/bright_green] [bold]{cms}[/bold]")
     else:
-        console.print(
-            "  [yellow]  CMS not identified — universal modules only[/yellow]")
+        console.print("  [yellow]  CMS not identified — universal modules only[/yellow]")
 
     save_config(session)
     time.sleep(1.2)
@@ -290,8 +265,7 @@ def toggle_proxy(session: Session):
         host = Prompt.ask("  Proxy host", default="127.0.0.1")
         port = Prompt.ask("  Proxy port", default="8080")
         session.proxy = f"{host}:{port}"
-        console.print(
-            f"  [bright_green]✓ Proxy set to {session.proxy}[/bright_green]")
+        console.print(f"  [bright_green]✓ Proxy set to {session.proxy}[/bright_green]")
     save_config(session)
     time.sleep(1.0)
 
@@ -301,37 +275,10 @@ def main():
         description="WebPwn Tools — Universal Web Penetration Testing Toolkit"
     )
     parser.add_argument("--target",  "-t", help="Target URL or domain")
-    parser.add_argument("--proxy",   "-p",
-                        help="Proxy (host:port), e.g. 127.0.0.1:8080")
-    parser.add_argument("--no-splash",     action="store_true",
-                        help="Skip splash screen")
-    parser.add_argument("--module",  "-m",
-                        help="Run a specific module and exit (1-9)")
-    parser.add_argument("--update",        action="store_true",
-                        help="Pull latest version from GitHub")
+    parser.add_argument("--proxy",   "-p", help="Proxy (host:port), e.g. 127.0.0.1:8080")
+    parser.add_argument("--no-splash",     action="store_true", help="Skip splash screen")
+    parser.add_argument("--module",  "-m", help="Run a specific module and exit (1-9)")
     args = parser.parse_args()
-
-  # Auto-update from GitHub
-    if args.update:
-        import subprocess
-        import sys
-        import os
-        repo_dir = os.path.dirname(os.path.abspath(__file__))
-        print("\n  Checking for updates...")
-        result = subprocess.run(
-            ["git", "-C", repo_dir, "pull"],
-            capture_output=True, text=True
-        )
-        if result.returncode == 0:
-            print(f"  {result.stdout.strip()}")
-            if "Already up to date" in result.stdout:
-                print("  Already on latest version.\n")
-            else:
-                print("  Update complete. Restarting...\n")
-                os.execv(sys.executable, [sys.executable] + sys.argv[:-1])
-        else:
-            print(f"  Update failed:\n  {result.stderr.strip()}\n")
-        sys.exit(0)
 
     # Load saved config
     config = load_config()
@@ -357,8 +304,7 @@ def main():
     # Non-interactive single-module mode
     if args.module:
         if not session.target:
-            console.print(
-                "[bold red]Error: --target is required with --module[/bold red]")
+            console.print("[bold red]Error: --target is required with --module[/bold red]")
             sys.exit(1)
         run_module(args.module, session)
         generate_report(session, console)

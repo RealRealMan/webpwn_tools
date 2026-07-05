@@ -47,6 +47,7 @@ def save_config(session):
         "wpscan_api": session.wpscan_api,
         "report_dir": session.report_dir,
         "wordlist":   session.wordlist,
+        "engagement": session.engagement,
     }
     with open(CONFIG_PATH, "w") as f:
         yaml.dump(data, f, default_flow_style=False)
@@ -87,11 +88,14 @@ def show_settings(session, console: Console):
     console.print("[dim]  3. Enable proxy here — all tool requests will route through Burp[/dim]")
     console.print()
 
-    console.print("[bold]Edit settings:[/bold]  [dim]e=edit  b=back[/dim]")
-    choice = Prompt.ask("  Option", default="b").strip().lower()
+    console.print("[bold]Options:[/bold]  [dim]e=edit settings  n=edit engagement info  b=back[/dim]")
+    choice = Prompt.ask("  Option", choices=["e","n","b"], default="b").strip().lower()
 
     if choice == "e":
         _edit_settings(session, console)
+        save_config(session)
+    elif choice == "n":
+        _edit_engagement(session, console)
         save_config(session)
 
 
@@ -126,3 +130,25 @@ def _edit_settings(session, console: Console):
             session.proxy = f"{host}:{port}"
 
     console.print("[bright_green]  ✓ Settings saved.[/bright_green]")
+
+
+def _edit_engagement(session, console: Console):
+    """Edit client/engagement info embedded in reports."""
+    console.print()
+    console.print("  [bold]Engagement Info[/bold] [dim](embedded in HTML report)[/dim]")
+    console.print()
+    fields = [
+        ("tester_name",  "Tester / Assessor name"),
+        ("client_name",  "Client / Organisation name"),
+        ("date_start",   "Test start date"),
+        ("date_end",     "Test end date"),
+        ("auth_ref",     "Authorisation document reference"),
+        ("scope",        "In-scope"),
+        ("out_of_scope", "Out-of-scope"),
+    ]
+    eng = session.engagement or {}
+    for key, label in fields:
+        val = Prompt.ask(f"  [cyan]{label}[/cyan]", default=eng.get(key, ""))
+        eng[key] = val.strip()
+    session.engagement = eng
+    console.print("  [bright_green]  Engagement info saved.[/bright_green]")

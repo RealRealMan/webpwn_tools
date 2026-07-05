@@ -93,10 +93,12 @@ def _check_security_headers(session: Session, console: Console):
             if val:
                 status = "[bright_green]✓ PRESENT[/bright_green]"
                 display = val[:60] + ("…" if len(val) > 60 else "")
+                session.append_profile("headers_present", hdr)
             else:
                 sev = "HIGH" if meta["required"] else "MEDIUM"
                 status = f"[{'bold red' if meta['required'] else 'yellow'}]✗ MISSING[/{'bold red' if meta['required'] else 'yellow'}]"
                 display = f"[dim]{meta['desc']}[/dim]"
+                session.append_profile("headers_missing", hdr)
                 session.add_finding(
                     sev,
                     f"Missing security header: {hdr}",
