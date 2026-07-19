@@ -18,82 +18,40 @@ class Session:
                                       os.path.expanduser("~/webpwn/reports/"))
         self.wordlist    = config.get("wordlist",
                                       "/usr/share/wordlists/dirb/common.txt")
-        self.findings    = []
-        self.command_log = []
+        # Engagement info
+        self.assessor    = config.get("assessor", "")
+        self.client      = config.get("client", "")
+        self.test_start  = config.get("test_start", "")
+        self.test_end    = config.get("test_end", "")
+        self.auth_ref    = config.get("auth_ref", "")
+        self.in_scope    = config.get("in_scope", "")
+        self.out_scope   = config.get("out_scope", "")
+        self.test_type   = config.get("test_type", "Black-box Web Application Pentest")
 
-        # ── Structured target profile (populated by recon/headers/cms modules) ──
-        self.target_profile = {
-            # Identity
-            "domain":           "",
-            "subdomains":       [],   # list of str
-            "ip_addresses":     [],   # list of str
-            # Infrastructure
-            "server":           "",
-            "technologies":     [],   # list of str e.g. ["PHP/8.1", "Apache"]
-            "cdn":              "",   # e.g. "Cloudflare", "Fastly"
-            "hosting":          "",   # e.g. "Google Cloud", "AWS"
-            # CMS
-            "cms":              "",
-            "cms_version":      "",
-            # DNS
-            "dns_mx":           [],
-            "dns_ns":           [],
-            "dns_txt":          [],
-            # TLS / SSL
-            "ssl_issuer":       "",
-            "ssl_expiry":       "",
-            "ssl_grade":        "",
-            # WHOIS
-            "whois_registrar":  "",
-            "whois_created":    "",
-            "whois_expiry":     "",
-            "whois_org":        "",
-            # Security headers quick summary (populated by headers_tls module)
-            "headers_present":  [],
-            "headers_missing":  [],
-            # Open ports (if nmap run)
-            "open_ports":       [],
-        }
-
-        # Engagement info (set via Settings, embedded in report)
-        self.engagement = config.get("engagement", {
-            "tester_name":   "",
-            "client_name":   "",
-            "date_start":    "",
-            "date_end":      "",
-            "auth_ref":      "",   # authorisation document / reference
-            "scope":         "",
-            "out_of_scope":  "",
-        })
+        self.findings    = []   # list of Finding dicts
+        self.command_log = []   # list of (timestamp, cmd, output) tuples
+        self.whois_data  = {}   # store WHOIS results for report
+        self.tech_data   = []   # store clean technology tags for report
+        self.header_data = {"present": [], "missing": []}  # security headers
 
         os.makedirs(self.report_dir, exist_ok=True)
 
-    # ── profile helpers ──────────────────────────────────────────────────────
-
-    def set_profile(self, key: str, value):
-        """Set a single profile field."""
-        if key in self.target_profile:
-            self.target_profile[key] = value
-
-    def append_profile(self, key: str, value):
-        """Append to a list profile field (deduplicating)."""
-        if key in self.target_profile and isinstance(self.target_profile[key], list):
-            if value and value not in self.target_profile[key]:
-                self.target_profile[key].append(value)
-
-    # ── findings ─────────────────────────────────────────────────────────────
-
     def add_finding(self, severity: str, title: str, description: str,
                     evidence: str = "", remediation: str = "", module: str = ""):
+        # Fix #2: Deduplicate — skip if same title + module already exists
+        for existing in self.findings:
+            if existing["title"] == title and existing["module"] == module:
+                return
+
         self.findings.append({
-            "id":          len(self.findings) + 1,
-            "severity":    severity.upper(),
-            "title":       title,
-            "description": description,
-            "evidence":    evidence,
-            "remediation": remediation,
-            "module":      module,
-            "timestamp":   datetime.datetime.now().isoformat(),
+            "id":           len(self.findings) + 1,
+            "severity":     severity.upper(),
+            "title":        title,
+            "description":  description,
+            "evidence":     evidence,
+            "remediation":  remediation,
+            "module":       module,
+            "timestamp":    datetime.datetime.now().isoformat(),
         })
 
     def log_command(self, cmd: str, output: str = ""):
@@ -102,8 +60,6 @@ class Session:
             "cmd":       cmd,
             "output":    output[:2000],
         })
-
-    # ── proxy helpers ─────────────────────────────────────────────────────────
 
     def proxy_dict(self):
         if self.proxy:
@@ -115,8 +71,6 @@ class Session:
         if self.proxy:
             return f"--proxy http://{self.proxy}"
         return ""
-
-    # ── summary ───────────────────────────────────────────────────────────────
 
     def summary(self):
         counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}

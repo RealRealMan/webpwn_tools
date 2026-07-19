@@ -1,5 +1,6 @@
 """
-Settings — load/save config.yaml and display settings screen.
+Settings — load/save config.yaml, engagement info, display settings screen.
+Fix #10: Engagement fields with placeholder hints.
 """
 import os
 import yaml
@@ -20,6 +21,15 @@ DEFAULTS = {
     "wpscan_api":  "",
     "report_dir":  str(Path.home() / "webpwn" / "reports"),
     "wordlist":    "/usr/share/wordlists/dirb/common.txt",
+    # Engagement info
+    "assessor":    "",
+    "client":      "",
+    "test_start":  "",
+    "test_end":    "",
+    "auth_ref":    "",
+    "in_scope":    "",
+    "out_scope":   "",
+    "test_type":   "Black-box Web Application Pentest",
 }
 
 
@@ -47,7 +57,14 @@ def save_config(session):
         "wpscan_api": session.wpscan_api,
         "report_dir": session.report_dir,
         "wordlist":   session.wordlist,
-        "engagement": session.engagement,
+        "assessor":   session.assessor,
+        "client":     session.client,
+        "test_start": session.test_start,
+        "test_end":   session.test_end,
+        "auth_ref":   session.auth_ref,
+        "in_scope":   session.in_scope,
+        "out_scope":  session.out_scope,
+        "test_type":  session.test_type,
     }
     with open(CONFIG_PATH, "w") as f:
         yaml.dump(data, f, default_flow_style=False)
@@ -59,54 +76,77 @@ def show_settings(session, console: Console):
                         border_style="bright_blue"))
     console.print()
 
-    # Current config table
+    # Tool config table
+    console.print("  [bold cyan]── Tool Configuration ──────────────────────────────[/bold cyan]")
     t = Table(show_header=True, header_style="bold cyan",
               border_style="dim", show_lines=True)
-    t.add_column("Setting",   style="bold white", width=18)
-    t.add_column("Value",     style="cyan")
-    t.add_column("Notes",     style="dim")
+    t.add_column("Setting",  style="bold white", width=18)
+    t.add_column("Value",    style="cyan")
+    t.add_column("Notes",    style="dim")
 
-    proxy_val = f"[green]{session.proxy}[/green]" if session.proxy else "[dim red]disabled[/dim red]"
-    wpscan_val = "[green]set[/green]" if session.wpscan_api else "[dim red]not set[/dim red]"
+    proxy_val   = f"[green]{session.proxy}[/green]" if session.proxy else "[dim red]disabled[/dim red]"
+    wpscan_val  = "[green]set[/green]" if session.wpscan_api else "[dim red]not set[/dim red]"
 
-    t.add_row("target",     session.target or "[dim]not set[/dim]",    "URL or domain")
-    t.add_row("proxy",      proxy_val,                                  "Burp: 127.0.0.1:8080")
-    t.add_row("cms",        session.cms or "[dim]auto-detect[/dim]",   "Set automatically on target change")
-    t.add_row("threads",    str(session.threads),                       "Concurrent threads")
-    t.add_row("rate_limit", f"{session.rate_limit} req/s",             "Max requests per second")
-    t.add_row("wpscan_api", wpscan_val,                                 "From wpscan.com (free)")
-    t.add_row("report_dir", session.report_dir,                        "HTML report output path")
-    t.add_row("wordlist",   session.wordlist,                           "Dir enum wordlist path")
-
+    t.add_row("target",     session.target or "[dim]not set[/dim]",   "URL or domain")
+    t.add_row("proxy",      proxy_val,                                 "Burp: 127.0.0.1:8080")
+    t.add_row("threads",    str(session.threads),                      "Concurrent threads")
+    t.add_row("rate_limit", f"{session.rate_limit} req/s",            "Max requests per second")
+    t.add_row("wpscan_api", wpscan_val,                                "From wpscan.com (free)")
+    t.add_row("report_dir", session.report_dir,                        "HTML report output")
+    t.add_row("wordlist",   session.wordlist,                          "Dir enum wordlist")
     console.print(t)
     console.print()
 
-    # Proxy help
-    console.print("[bold]Burp Suite proxy setup:[/bold]")
-    console.print("[dim]  1. Open Burp → Proxy → Options → ensure listener on 127.0.0.1:8080[/dim]")
-    console.print("[dim]  2. For HTTPS: Proxy → CA Certificate → export and trust in system/browser[/dim]")
-    console.print("[dim]  3. Enable proxy here — all tool requests will route through Burp[/dim]")
+    # Engagement info table
+    console.print("  [bold cyan]── Engagement Information (for report) ─────────────[/bold cyan]")
+    e = Table(show_header=True, header_style="bold cyan",
+              border_style="dim", show_lines=True)
+    e.add_column("Field",       style="bold white", width=22)
+    e.add_column("Value",       style="cyan")
+    e.add_column("Placeholder", style="dim")
+
+    # Fix #10: show placeholder hints
+    eng_fields = [
+        ("assessor",   "Assessor / Tester",       session.assessor,   "e.g. Jane Smith"),
+        ("client",     "Client / Organisation",   session.client,     "e.g. Acme Corp"),
+        ("test_start", "Test Start Date",          session.test_start, "e.g. 2026-07-01"),
+        ("test_end",   "Test End Date",            session.test_end,   "e.g. 2026-07-07"),
+        ("auth_ref",   "Authorisation Reference",  session.auth_ref,   "e.g. Email from CEO dated 2026-06-30"),
+        ("in_scope",   "In-Scope",                session.in_scope,   "e.g. https://target.com and all subpages"),
+        ("out_scope",  "Out-of-Scope",            session.out_scope,  "e.g. Payment gateway, third-party APIs"),
+        ("test_type",  "Testing Type",             session.test_type,  "e.g. Black-box / Grey-box"),
+    ]
+    for _, label, val, hint in eng_fields:
+        display = val if val else "[dim]not set[/dim]"
+        e.add_row(label, display, hint)
+    console.print(e)
     console.print()
 
-    console.print("[bold]Options:[/bold]  [dim]e=edit settings  n=edit engagement info  b=back[/dim]")
-    choice = Prompt.ask("  Option", choices=["e","n","b"], default="b").strip().lower()
+    # Burp help
+    console.print("  [bold]Burp Suite proxy:[/bold]")
+    console.print("  [dim]  1. Burp → Proxy → Options → listener on 127.0.0.1:8080[/dim]")
+    console.print("  [dim]  2. For HTTPS: export Burp CA cert and trust in system[/dim]")
+    console.print("  [dim]  3. Enable proxy here — all requests route through Burp[/dim]")
+    console.print()
+    console.print("  [bold]Options:[/bold]  [dim]e=edit tool config  g=edit engagement info  b=back[/dim]")
 
+    choice = Prompt.ask("  Option", default="b").strip().lower()
     if choice == "e":
-        _edit_settings(session, console)
+        _edit_tool_config(session, console)
         save_config(session)
-    elif choice == "n":
+    elif choice == "g":
         _edit_engagement(session, console)
         save_config(session)
 
 
-def _edit_settings(session, console: Console):
+def _edit_tool_config(session, console: Console):
     console.print()
     fields = [
-        ("threads",     "Threads",           str(session.threads)),
-        ("rate_limit",  "Rate limit (req/s)",str(session.rate_limit)),
-        ("wpscan_api",  "WPScan API token",  session.wpscan_api),
-        ("report_dir",  "Report directory",  session.report_dir),
-        ("wordlist",    "Wordlist path",      session.wordlist),
+        ("threads",    "Threads",            str(session.threads)),
+        ("rate_limit", "Rate limit (req/s)", str(session.rate_limit)),
+        ("wpscan_api", "WPScan API token",   session.wpscan_api),
+        ("report_dir", "Report directory",   session.report_dir),
+        ("wordlist",   "Wordlist path",      session.wordlist),
     ]
     for attr, label, current in fields:
         val = Prompt.ask(f"  [cyan]{label}[/cyan]", default=current)
@@ -118,7 +158,6 @@ def _edit_settings(session, console: Console):
         else:
             setattr(session, attr, val)
 
-    # Proxy toggle
     console.print()
     if session.proxy:
         if Confirm.ask(f"  Proxy currently [green]{session.proxy}[/green]. Disable?"):
@@ -133,22 +172,25 @@ def _edit_settings(session, console: Console):
 
 
 def _edit_engagement(session, console: Console):
-    """Edit client/engagement info embedded in reports."""
+    """Fix #10: Edit engagement fields with clear placeholder guidance."""
     console.print()
-    console.print("  [bold]Engagement Info[/bold] [dim](embedded in HTML report)[/dim]")
+    console.print("  [dim]Fill in engagement details for the report. Press Enter to keep current value.[/dim]")
     console.print()
+
     fields = [
-        ("tester_name",  "Tester / Assessor name"),
-        ("client_name",  "Client / Organisation name"),
-        ("date_start",   "Test start date"),
-        ("date_end",     "Test end date"),
-        ("auth_ref",     "Authorisation document reference"),
-        ("scope",        "In-scope"),
-        ("out_of_scope", "Out-of-scope"),
+        ("assessor",   "Assessor / Tester",       session.assessor,   "e.g. Jane Smith"),
+        ("client",     "Client / Organisation",   session.client,     "e.g. Acme Corp"),
+        ("test_start", "Test Start Date",          session.test_start, "e.g. 2026-07-01"),
+        ("test_end",   "Test End Date",            session.test_end,   "e.g. 2026-07-07"),
+        ("auth_ref",   "Authorisation Reference",  session.auth_ref,   "e.g. Email from CEO dated 2026-06-30"),
+        ("in_scope",   "In-Scope",                session.in_scope,   "e.g. https://target.com and all subpages"),
+        ("out_scope",  "Out-of-Scope",            session.out_scope,  "e.g. Payment gateway, third-party APIs"),
+        ("test_type",  "Testing Type",             session.test_type,  "e.g. Black-box / Grey-box"),
     ]
-    eng = session.engagement or {}
-    for key, label in fields:
-        val = Prompt.ask(f"  [cyan]{label}[/cyan]", default=eng.get(key, ""))
-        eng[key] = val.strip()
-    session.engagement = eng
-    console.print("  [bright_green]  Engagement info saved.[/bright_green]")
+
+    for attr, label, current, hint in fields:
+        console.print(f"  [dim]{hint}[/dim]")
+        val = Prompt.ask(f"  [cyan]{label}[/cyan]", default=current or "")
+        setattr(session, attr, val.strip())
+
+    console.print("\n  [bright_green]✓ Engagement info saved.[/bright_green]")

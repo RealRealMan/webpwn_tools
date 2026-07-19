@@ -1,6 +1,6 @@
 """
 Module 2 — HTTP Security Headers & TLS Analysis
-Checks CSP, HSTS, X-Frame-Options, X-Content-Type-Options, cookie flags, SSL grade.
+Fix #8: Stores present/missing headers into session.header_data for reporter.
 """
 import subprocess
 import requests
@@ -41,7 +41,7 @@ SECURITY_HEADERS = {
     },
     "permissions-policy": {
         "required": False,
-        "desc": "Restricts browser feature access (camera, mic, etc.)",
+        "desc": "Restricts browser feature access",
         "remediation": "Add: Permissions-Policy: camera=(), microphone=(), geolocation=()",
     },
     "x-xss-protection": {
@@ -75,30 +75,32 @@ def _check_security_headers(session: Session, console: Console):
         proxies = session.proxy_dict()
         r = requests.get(session.target,
                          headers={"User-Agent": UA},
-                         proxies=proxies,
-                         timeout=TIMEOUT,
-                         verify=False,
-                         allow_redirects=True)
+                         proxies=proxies, timeout=TIMEOUT,
+                         verify=False, allow_redirects=True)
 
         hdrs = {k.lower(): v for k, v in r.headers.items()}
 
         t = Table(show_header=True, header_style="bold cyan",
                   border_style="dim", show_lines=True)
-        t.add_column("Header",   width=32)
-        t.add_column("Status",   width=10)
+        t.add_column("Header",       width=32)
+        t.add_column("Status",       width=12)
         t.add_column("Value / Note", width=50)
+
+        # Fix #8: reset and rebuild header_data each run
+        session.header_data = {"present": [], "missing": []}
 
         for hdr, meta in SECURITY_HEADERS.items():
             val = hdrs.get(hdr)
             if val:
-                status = "[bright_green]✓ PRESENT[/bright_green]"
+                status  = "[bright_green]✓ PRESENT[/bright_green]"
                 display = val[:60] + ("…" if len(val) > 60 else "")
-                session.append_profile("headers_present", hdr)
+                session.header_data["present"].append(hdr)
             else:
-                sev = "HIGH" if meta["required"] else "MEDIUM"
-                status = f"[{'bold red' if meta['required'] else 'yellow'}]✗ MISSING[/{'bold red' if meta['required'] else 'yellow'}]"
+                sev    = "HIGH" if meta["required"] else "MEDIUM"
+                color  = "bold red" if meta["required"] else "yellow"
+                status = f"[{color}]✗ MISSING[/{color}]"
                 display = f"[dim]{meta['desc']}[/dim]"
-                session.append_profile("headers_missing", hdr)
+                session.header_data["missing"].append(hdr)
                 session.add_finding(
                     sev,
                     f"Missing security header: {hdr}",
@@ -115,7 +117,6 @@ def _check_security_headers(session: Session, console: Console):
 
     except Exception as e:
         console.print(f"  [red]  Error fetching headers: {e}[/red]")
-
     console.print()
 
 
@@ -125,20 +126,18 @@ def _check_cookies(session: Session, console: Console):
         proxies = session.proxy_dict()
         r = requests.get(session.target,
                          headers={"User-Agent": UA},
-                         proxies=proxies,
-                         timeout=TIMEOUT,
-                         verify=False,
-                         allow_redirects=True)
+                         proxies=proxies, timeout=TIMEOUT,
+                         verify=False, allow_redirects=True)
 
         if not r.cookies:
             console.print("  [dim]No cookies set on initial request.[/dim]")
         else:
             t = Table(show_header=True, header_style="bold cyan",
                       border_style="dim", show_lines=True)
-            t.add_column("Cookie",    width=24)
-            t.add_column("Secure",    width=8)
-            t.add_column("HttpOnly",  width=10)
-            t.add_column("SameSite",  width=10)
+            t.add_column("Cookie",   width=24)
+            t.add_column("Secure",   width=8)
+            t.add_column("HttpOnly", width=10)
+            t.add_column("SameSite", width=10)
 
             for cookie in r.cookies:
                 secure_str   = "[green]✓[/green]" if cookie.secure else "[red]✗[/red]"
@@ -150,7 +149,7 @@ def _check_cookies(session: Session, console: Console):
                     session.add_finding(
                         "MEDIUM",
                         f"Cookie '{cookie.name}' missing Secure flag",
-                        "Cookie can be transmitted over HTTP, exposing it to interception.",
+                        "Cookie can be transmitted over HTTP.",
                         evidence=f"Set-Cookie: {cookie.name}=...",
                         remediation="Add Secure flag to all cookies.",
                         module="Headers & TLS"
@@ -160,7 +159,6 @@ def _check_cookies(session: Session, console: Console):
 
     except Exception as e:
         console.print(f"  [red]  Cookie check error: {e}[/red]")
-
     console.print()
 
 
@@ -169,12 +167,9 @@ def _run_testssl(session: Session, console: Console):
     domain = urlparse(session.target).netloc or session.target
     cmd = ["testssl.sh", "--color", "0", "--severity", "HIGH", domain]
     try:
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=90
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
         output = result.stdout
 
-        # Print only HIGH/CRITICAL lines
         for line in output.splitlines():
             line_l = line.lower()
             if any(kw in line_l for kw in ["critical", "high", "medium", "low", "ok", "not ok"]):
@@ -190,15 +185,10 @@ def _run_testssl(session: Session, console: Console):
         session.log_command(" ".join(cmd), output[:1000])
 
     except FileNotFoundError:
-        console.print("  [yellow]  testssl.sh not found.[/yellow]")
-        console.print("  [dim]  Install: apt install testssl.sh  OR  git clone https://github.com/drwetter/testssl.sh[/dim]")
-        console.print()
-        console.print("  [dim]  Quick alternative (online): https://www.ssllabs.com/ssltest/analyze.html[/dim]")
-        console.print(f"  [cyan]  → https://www.ssllabs.com/ssltest/analyze.html?d={urlparse(session.target).netloc}[/cyan]")
+        console.print("  [yellow]  testssl.sh not found. Install: apt install testssl.sh[/yellow]")
+        console.print(f"  [cyan]  Online: https://www.ssllabs.com/ssltest/analyze.html?d={domain}[/cyan]")
     except subprocess.TimeoutExpired:
-        console.print("  [yellow]  testssl.sh timed out (>90s). Try running manually:[/yellow]")
-        console.print(f"  [dim]  testssl.sh {domain}[/dim]")
+        console.print("  [yellow]  testssl.sh timed out. Try manually: testssl.sh " + domain + "[/yellow]")
     except Exception as e:
         console.print(f"  [red]  testssl error: {e}[/red]")
-
     console.print()
